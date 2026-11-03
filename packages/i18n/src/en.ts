@@ -1,0 +1,47 @@
+export const en = {
+  common: {
+    search: 'Search',
+    loading: 'Loading...',
+    error: 'An error occurred',
+    notFound: 'Not found',
+    save: 'Save',
+    cancel: 'Cancel',
+    delete: 'Delete',
+    edit: 'Edit',
+    submit: 'Submit',
+    back: 'Back',
+    viewAll: 'View All',
+    learnMore: 'Learn More',
+  },
+  nav: {
+    home: 'Home',
+    businesses: 'Businesses',
+    marketplace: 'Marketplace',
+    login: 'Log In',
+    register: 'Sign Up',
+    dashboard: 'Dashboard',
+    logout: 'Log Out',
+  },
+  business: {
+    claimBusiness: 'Claim Your Business',
+    addBusiness: 'Add Business',
+    verified: 'Verified',
+    rating: 'Rating',
+    reviews: 'Reviews',
+    hours: 'Business Hours',
+    location: 'Location',
+    contact: 'Contact',
+    website: 'Website',
+  },
+  emirates: {
+    AUH: 'Abu Dhabi',
+    DXB: 'Dubai',
+    SHJ: 'Sharjah',
+    AJM: 'Ajman',
+    UAQ: 'Umm Al Quwain',
+    RAK: 'Ras Al Khaimah',
+    FUJ: 'Fujairah',
+  },
+} as const;
+
+export type TranslationKeys = typeof en;
