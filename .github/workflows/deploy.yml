@@ -1,19 +1,19 @@
-name: Deploy to Staging
+name: Deploy to Production
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-staging
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy Staging
+    name: Deploy
     runs-on: ubuntu-latest
-    environment: staging
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +21,7 @@ jobs:
         id: tag
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Deploy to srv988590 via SSH
+      - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -31,13 +31,13 @@ jobs:
             set -e
             cd /srv/uevio
 
-            # Fetch latest compose + nginx config (no full checkout needed)
-            git fetch origin develop
-            git checkout origin/develop -- \
-              docker-compose.staging.yml \
-              infrastructure/nginx/uevio-staging.conf
+            # Fetch latest compose file
+            git fetch origin main
+            git checkout origin/main -- \
+              docker-compose.prod.yml \
+              infrastructure/nginx/uevio.conf
 
-            # Write .env from secrets (idempotent)
+            # Write .env
             cat > .env << 'ENVEOF'
             GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
             IMAGE_TAG=${{ steps.tag.outputs.tag }}
@@ -59,40 +59,42 @@ jobs:
             SMTP_PASS=${{ secrets.SMTP_PASS }}
             SMTP_FROM=${{ secrets.SMTP_FROM }}
             NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}
-            NEXTAUTH_URL_WEB=https://staging.uevio.com
-            NEXTAUTH_URL_BUSINESS=https://business.staging.uevio.com
-            NEXTAUTH_URL_ADMIN=https://admin.staging.uevio.com
-            API_URL=https://api.staging.uevio.com
-            NEXT_PUBLIC_WEB_URL=https://staging.uevio.com
+            NEXTAUTH_URL_WEB=https://uevio.com
+            NEXTAUTH_URL_BUSINESS=https://business.uevio.com
+            NEXTAUTH_URL_ADMIN=https://admin.uevio.com
+            API_URL=https://api.uevio.com
+            NEXT_PUBLIC_WEB_URL=https://uevio.com
             ENVEOF
 
             # Login to GHCR
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull new images
-            docker compose -f docker-compose.staging.yml pull api worker web business admin
+            docker compose -f docker-compose.prod.yml pull api worker web business admin
 
-            # Run migrations before restart
-            docker compose -f docker-compose.staging.yml run --rm \
+            # Backup DB before migration
+            docker compose -f docker-compose.prod.yml exec -T postgres \
+              pg_dump -U ${{ secrets.POSTGRES_USER }} ${{ secrets.POSTGRES_DB }} \
+              > /srv/uevio/backups/pre-deploy-$(date +%Y%m%d-%H%M%S).sql || true
+
+            # Run migrations
+            docker compose -f docker-compose.prod.yml run --rm \
               -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
               api sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma"
 
             # Rolling restart
-            docker compose -f docker-compose.staging.yml up -d --remove-orphans
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             # Health check
             sleep 20
-            docker compose -f docker-compose.staging.yml ps --format "table {{.Name}}\t{{.Status}}"
-
-            # Quick API ping
+            docker compose -f docker-compose.prod.yml ps --format "table {{.Name}}\t{{.Status}}"
             curl -sf http://127.0.0.1:13001/api/v1/health || echo "API health check failed — check logs"
 
       - name: Notify deployment
         if: always()
         run: |
-          echo "Staging deploy ${{ job.status }} — tag: ${{ steps.tag.outputs.tag }}"
-          echo "Staging URLs:"
-          echo "  Web:      https://staging.uevio.com"
-          echo "  API:      https://api.staging.uevio.com"
-          echo "  Business: https://business.staging.uevio.com"
-          echo "  Admin:    https://admin.staging.uevio.com"
+          echo "Deploy ${{ job.status }} — tag: ${{ steps.tag.outputs.tag }}"
+          echo "  https://uevio.com"
+          echo "  https://api.uevio.com"
+          echo "  https://business.uevio.com"
+          echo "  https://admin.uevio.com"
