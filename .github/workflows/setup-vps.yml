@@ -1,0 +1,53 @@
+name: VPS One-Time Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: Setup VPS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            # 1. Directories
+            mkdir -p /opt/uevio/backups
+
+            # 2. Clone repo
+            cd /opt/uevio
+            git init
+            git remote add origin https://github.com/ddotsmedia/uevio 2>/dev/null || \
+              git remote set-url origin https://github.com/ddotsmedia/uevio
+            git fetch origin main
+            git checkout -f origin/main
+
+            # 3. Nginx config
+            cp /opt/uevio/infrastructure/nginx/uevio.conf /etc/nginx/sites-available/uevio
+            ln -sf /etc/nginx/sites-available/uevio /etc/nginx/sites-enabled/uevio
+            nginx -t
+            systemctl reload nginx
+
+            # 4. SSL certificates
+            certbot --nginx -d uevio.com -d www.uevio.com \
+              --non-interactive --agree-tos -m admin@uevio.com
+            certbot --nginx -d api.uevio.com \
+              --non-interactive --agree-tos -m admin@uevio.com
+            certbot --nginx -d business.uevio.com \
+              --non-interactive --agree-tos -m admin@uevio.com
+            certbot --nginx -d admin.uevio.com \
+              --non-interactive --agree-tos -m admin@uevio.com
+
+            # 5. Final reload + verify
+            nginx -t && systemctl reload nginx
+            curl -sI https://uevio.com | head -3
+
+            echo "VPS setup complete"
