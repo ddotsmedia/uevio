@@ -14,7 +14,6 @@ jobs:
     name: Deploy Staging
     runs-on: ubuntu-latest
     environment: staging
-    needs: []
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +21,7 @@ jobs:
         id: tag
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Deploy to VPS via SSH
+      - name: Deploy to srv988590 via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -32,29 +31,68 @@ jobs:
             set -e
             cd /srv/uevio
 
-            # Pull latest compose file
+            # Fetch latest compose + nginx config (no full checkout needed)
             git fetch origin develop
-            git checkout origin/develop -- docker-compose.staging.yml infrastructure/caddy/Caddyfile.staging
+            git checkout origin/develop -- \
+              docker-compose.staging.yml \
+              infrastructure/nginx/uevio-staging.conf
 
-            # Set image tag
-            export IMAGE_TAG=${{ steps.tag.outputs.tag }}
-            export GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+            # Write .env from secrets (idempotent)
+            cat > .env << 'ENVEOF'
+            GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+            IMAGE_TAG=${{ steps.tag.outputs.tag }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            REDIS_URL=${{ secrets.REDIS_URL }}
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
+            R2_ACCOUNT_ID=${{ secrets.R2_ACCOUNT_ID }}
+            R2_ACCESS_KEY_ID=${{ secrets.R2_ACCESS_KEY_ID }}
+            R2_SECRET_ACCESS_KEY=${{ secrets.R2_SECRET_ACCESS_KEY }}
+            R2_BUCKET_NAME=${{ secrets.R2_BUCKET_NAME }}
+            R2_PUBLIC_URL=${{ secrets.R2_PUBLIC_URL }}
+            SMTP_HOST=${{ secrets.SMTP_HOST }}
+            SMTP_PORT=${{ secrets.SMTP_PORT }}
+            SMTP_USER=${{ secrets.SMTP_USER }}
+            SMTP_PASS=${{ secrets.SMTP_PASS }}
+            SMTP_FROM=${{ secrets.SMTP_FROM }}
+            NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}
+            NEXTAUTH_URL_WEB=https://staging.uevio.com
+            NEXTAUTH_URL_BUSINESS=https://business.staging.uevio.com
+            NEXTAUTH_URL_ADMIN=https://admin.staging.uevio.com
+            API_URL=https://api.staging.uevio.com
+            NEXT_PUBLIC_WEB_URL=https://staging.uevio.com
+            ENVEOF
+
+            # Login to GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull new images
             docker compose -f docker-compose.staging.yml pull api worker web business admin
 
-            # Run migrations
-            docker compose -f docker-compose.staging.yml run --rm api \
-              sh -c "cd packages/database && npx prisma migrate deploy"
+            # Run migrations before restart
+            docker compose -f docker-compose.staging.yml run --rm \
+              -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
+              api sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma"
 
-            # Rolling restart (zero-downtime)
+            # Rolling restart
             docker compose -f docker-compose.staging.yml up -d --remove-orphans
 
             # Health check
-            sleep 15
-            docker compose -f docker-compose.staging.yml ps
+            sleep 20
+            docker compose -f docker-compose.staging.yml ps --format "table {{.Name}}\t{{.Status}}"
+
+            # Quick API ping
+            curl -sf http://127.0.0.1:13001/api/v1/health || echo "API health check failed — check logs"
 
       - name: Notify deployment
         if: always()
         run: |
-          echo "Staging deployment ${{ job.status }} — tag: ${{ steps.tag.outputs.tag }}"
+          echo "Staging deploy ${{ job.status }} — tag: ${{ steps.tag.outputs.tag }}"
+          echo "Staging URLs:"
+          echo "  Web:      https://staging.uevio.com"
+          echo "  API:      https://api.staging.uevio.com"
+          echo "  Business: https://business.staging.uevio.com"
+          echo "  Admin:    https://admin.staging.uevio.com"

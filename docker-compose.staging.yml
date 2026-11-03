@@ -1,5 +1,10 @@
 version: '3.9'
 
+# STAGING on srv988590 (194.164.151.202)
+# Existing Nginx on VPS handles SSL + reverse proxy → 127.0.0.1:1300x
+# No Caddy here — ports 80/443 are owned by the shared Nginx.
+# Nginx config: infrastructure/nginx/uevio-staging.conf
+
 services:
   postgres:
     image: postgis/postgis:16-3.4-alpine
@@ -38,6 +43,8 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/uevio-api:${IMAGE_TAG:-latest}
     container_name: uevio-api
     restart: always
+    ports:
+      - "127.0.0.1:13001:3001"
     environment:
       NODE_ENV: staging
       DATABASE_URL: ${DATABASE_URL}
@@ -79,6 +86,8 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/uevio-web:${IMAGE_TAG:-latest}
     container_name: uevio-web
     restart: always
+    ports:
+      - "127.0.0.1:13002:3002"
     environment:
       NODE_ENV: staging
       NEXTAUTH_URL: ${NEXTAUTH_URL_WEB}
@@ -94,6 +103,8 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/uevio-business:${IMAGE_TAG:-latest}
     container_name: uevio-business
     restart: always
+    ports:
+      - "127.0.0.1:13003:3003"
     environment:
       NODE_ENV: staging
       NEXTAUTH_URL: ${NEXTAUTH_URL_BUSINESS}
@@ -108,6 +119,8 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/uevio-admin:${IMAGE_TAG:-latest}
     container_name: uevio-admin
     restart: always
+    ports:
+      - "127.0.0.1:13004:3004"
     environment:
       NODE_ENV: staging
       NEXTAUTH_URL: ${NEXTAUTH_URL_ADMIN}
@@ -118,25 +131,6 @@ services:
     depends_on:
       - api
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: uevio-caddy
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./infrastructure/caddy/Caddyfile.staging:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - uevio-internal
-    depends_on:
-      - web
-      - business
-      - admin
-      - api
-
 networks:
   uevio-internal:
     driver: bridge
@@ -144,5 +138,3 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  caddy_data:
-  caddy_config:
