@@ -15,7 +15,7 @@
     "@uevio/i18n": "workspace:*",
     "@uevio/shared": "workspace:*",
     "@uevio/ui": "workspace:*",
-    "next": "15.0.3",
+    "next": "15.5.28",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
